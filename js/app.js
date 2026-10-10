@@ -4,7 +4,6 @@
 
 const App = {
   async init() {
-    console.log('Laboratory System starting...');
     try {
       if (!Storage.isFSAccessSupported()) {
         this.showUnsupportedBrowser();
@@ -13,8 +12,7 @@ const App = {
       Utils.hide('loading-screen');
       this.showFolderSelectionPrompt();
     } catch (err) {
-      console.error(err);
-      Utils.showToast('خطا در راه‌اندازی برنامه: ' + err.message, 'error');
+      Utils.showToast('خطا: ' + err.message, 'error');
     }
   },
 
@@ -22,21 +20,17 @@ const App = {
     document.getElementById('loading-screen').innerHTML = `
       <div class="loading-box">
         <h1>مرورگر پشتیبانی نمی‌شود</h1>
-        <p style="max-width:400px;margin:1rem auto;color:var(--text-muted)">
-          از Microsoft Edge یا Google Chrome نسخه جدید استفاده کنید.
-        </p>
+        <p class="text-muted">از Edge یا Chrome جدید استفاده کنید.</p>
       </div>`;
   },
 
   showFolderSelectionPrompt() {
-    const loading = document.getElementById('loading-screen');
-    loading.classList.remove('hidden');
-    loading.innerHTML = `
-      <div class="loading-box" style="max-width:480px">
+    const el = document.getElementById('loading-screen');
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <div class="loading-box" style="max-width:460px">
         <h1>سیستم مدیریت آزمایشگاه</h1>
-        <p class="text-muted" style="margin:1rem 0 1.5rem">
-          برای شروع، پوشه داده‌های مشترک را انتخاب کنید.
-        </p>
+        <p class="text-muted" style="margin:1rem 0 1.25rem">پوشه داده‌های مشترک را انتخاب کنید.</p>
         <button id="btn-start-select" class="btn btn-primary">انتخاب پوشه داده‌ها</button>
       </div>`;
     document.getElementById('btn-start-select').addEventListener('click', async () => {
@@ -54,9 +48,7 @@ const App = {
       const config = await Storage.getSystemConfig();
       if (!config || config.setupStatus !== 'completed') Setup.start();
       else this.showLogin();
-    } catch (err) {
-      Setup.start();
-    }
+    } catch (e) { Setup.start(); }
   },
 
   showLogin() {
@@ -64,7 +56,6 @@ const App = {
     Utils.hide('setup-screen');
     Utils.hide('main-screen');
     Utils.show('login-screen');
-
     document.getElementById('login-form').onsubmit = async (e) => {
       e.preventDefault();
       const username = document.getElementById('username').value.trim();
@@ -82,14 +73,11 @@ const App = {
     Utils.hide('setup-screen');
     Utils.hide('loading-screen');
     Utils.show('main-screen');
-
     document.getElementById('current-user').textContent =
       `${Auth.currentUser.displayName} (${Auth.currentUser.roleName})`;
-
     Storage.readJSON('organization.json').then(org => {
       if (org) document.getElementById('org-name').textContent = org.name || '';
     });
-
     this.buildSidebar();
     this.navigate('dashboard');
     document.getElementById('btn-logout').onclick = () => { Auth.logout(); this.showLogin(); };
@@ -98,7 +86,6 @@ const App = {
   buildSidebar() {
     const sidebar = document.getElementById('sidebar');
     const role = Auth.currentUser.role;
-
     let items = [
       { id: 'dashboard', label: 'داشبورد', icon: '📊' },
       { id: 'documents', label: 'مدارک', icon: '📄' },
@@ -107,7 +94,6 @@ const App = {
       { id: 'standards', label: 'استانداردها', icon: '📘' },
       { id: 'reports', label: 'گزارش‌ها', icon: '📈' }
     ];
-
     if (role === 'system_admin') {
       items.push(
         { id: 'users', label: 'مدیریت کاربران', icon: '👥' },
@@ -115,14 +101,11 @@ const App = {
         { id: 'backup', label: 'پشتیبان‌گیری', icon: '💾' }
       );
     }
-
     sidebar.innerHTML = items.map(item => `
-      <a href="#" data-page="${item.id}" class="nav-item">
-        <span>${item.icon}</span>
-        <span>${item.label}</span>
+      <a href="#" data-page="${item.id}">
+        <span>${item.icon}</span><span>${item.label}</span>
         <span class="badge hidden" id="badge-${item.id}"></span>
       </a>`).join('');
-
     sidebar.querySelectorAll('a').forEach(a => {
       a.addEventListener('click', (e) => {
         e.preventDefault();
@@ -131,7 +114,6 @@ const App = {
         a.classList.add('active');
       });
     });
-
     sidebar.querySelector('a[data-page="dashboard"]')?.classList.add('active');
     this.updateBadges();
   },
@@ -163,14 +145,12 @@ const App = {
       case 'reports': Export.renderReportsPage(content); break;
       case 'backup':
         content.innerHTML = `
-          <h2>پشتیبان‌گیری و بازیابی</h2>
-          <div class="table-container" style="padding:1.5rem;margin-top:1rem">
-            <p class="text-muted">سیستم به‌طور خودکار هنگام ذخیره تغییرات مهم، نسخه پشتیبان در پوشه <code>backups/</code> ایجاد می‌کند.</p>
-            <p class="text-muted mt-1">برای بازیابی، فایل JSON پشتیبان را از پوشه backups کپی و جایگزین فایل اصلی کنید.</p>
+          <h2>پشتیبان‌گیری</h2>
+          <div class="table-container" style="padding:1.25rem;margin-top:0.75rem">
+            <p class="text-muted">پشتیبان خودکار در پوشه <code>backups/</code> ذخیره می‌شود.</p>
           </div>`;
         break;
-      default:
-        content.innerHTML = `<p>صفحه یافت نشد.</p>`;
+      default: content.innerHTML = '<p>صفحه یافت نشد.</p>';
     }
   },
 
@@ -180,54 +160,66 @@ const App = {
     container.innerHTML = `
       <div class="dash-welcome">
         <h2>سلام، ${Auth.currentUser.displayName}</h2>
-        <p>نقش شما: ${Auth.currentUser.roleName} — به سیستم مدیریت آزمایشگاه خوش آمدید</p>
+        <p>نقش: ${Auth.currentUser.roleName}</p>
       </div>
 
-      <div class="cards-grid" id="dash-cards">
+      <h3 class="mb-1">آمار کلی</h3>
+      <div class="cards-grid" id="dash-main-stats">
         <div class="card" onclick="App.navigate('documents')">
           <div class="card-title">کل مدارک</div>
-          <div class="card-value" id="stat-total-docs">—</div>
+          <div class="card-value" id="stat-total">—</div>
         </div>
         <div class="card success" onclick="App.navigate('documents')">
-          <div class="card-title">مدارک جاری</div>
-          <div class="card-value" id="stat-current-docs">—</div>
+          <div class="card-title">جاری</div>
+          <div class="card-value" id="stat-current">—</div>
         </div>
         <div class="card danger" onclick="App.navigate('documents')">
-          <div class="card-title">مدارک منسوخ</div>
-          <div class="card-value" id="stat-obsolete-docs">—</div>
+          <div class="card-title">منسوخ</div>
+          <div class="card-value" id="stat-obsolete">—</div>
+        </div>
+        <div class="card info" onclick="App.navigate('users')">
+          <div class="card-title">پرسنل / کاربران</div>
+          <div class="card-value" id="stat-users">—</div>
         </div>
         ${role === 'quality_manager' || role === 'system_admin' ? `
-          <div class="card warning" onclick="App.navigate('change-requests')">
-            <div class="card-title">در انتظار بررسی کیفیت</div>
-            <div class="card-value" id="stat-pending-review">—</div>
-          </div>` : ''}
+        <div class="card warning" onclick="App.navigate('change-requests')">
+          <div class="card-title">در انتظار کیفیت</div>
+          <div class="card-value" id="stat-pending">—</div>
+        </div>` : ''}
         ${role === 'system_admin' ? `
-          <div class="card info" onclick="App.navigate('change-requests')">
-            <div class="card-title">آماده اقدام مدیر سیستم</div>
-            <div class="card-value" id="stat-ready-action">—</div>
-          </div>` : ''}
-        ${role === 'technical_manager' ? `
-          <div class="card" onclick="App.navigate('change-requests')">
-            <div class="card-title">درخواست‌های من</div>
-            <div class="card-value" id="stat-my-requests">—</div>
-          </div>` : ''}
-        <div class="card" onclick="App.navigate('records')">
-          <div class="card-title">سوابق</div>
-          <div class="card-value" id="stat-records">—</div>
+        <div class="card" onclick="App.navigate('change-requests')">
+          <div class="card-title">آماده اقدام</div>
+          <div class="card-value" id="stat-ready">—</div>
+        </div>` : ''}
+      </div>
+
+      <h3 class="mb-1 mt-2">مدارک بر اساس نوع</h3>
+      <div class="cards-grid">
+        <div class="card" onclick="App.navigate('documents')">
+          <div class="card-title">روش اجرایی</div>
+          <div class="card-value" id="stat-sop">—</div>
         </div>
-        <div class="card" onclick="App.navigate('standards')">
-          <div class="card-title">استانداردها</div>
-          <div class="card-value" id="stat-standards">—</div>
+        <div class="card" onclick="App.navigate('documents')">
+          <div class="card-title">دستورالعمل</div>
+          <div class="card-value" id="stat-wi">—</div>
+        </div>
+        <div class="card" onclick="App.navigate('documents')">
+          <div class="card-title">فرم‌ها</div>
+          <div class="card-value" id="stat-form">—</div>
+        </div>
+        <div class="card" onclick="App.navigate('documents')">
+          <div class="card-title">مدارک پشتیبان</div>
+          <div class="card-value" id="stat-support">—</div>
         </div>
       </div>
 
-      <div class="table-container" style="padding:1.25rem">
+      <div class="table-container" style="padding:1.1rem;margin-top:0.5rem">
         <h3 class="mb-1">دسترسی سریع</h3>
-        <div class="flex gap-1" style="flex-wrap:wrap;margin-top:0.75rem">
-          <button class="btn btn-outline btn-sm" onclick="App.navigate('documents')">مشاهده مدارک</button>
-          <button class="btn btn-outline btn-sm" onclick="App.navigate('change-requests')">درخواست‌های تغییر</button>
+        <div class="flex gap-1" style="flex-wrap:wrap;margin-top:0.5rem">
+          <button class="btn btn-outline btn-sm" onclick="App.navigate('documents')">مدارک</button>
+          <button class="btn btn-outline btn-sm" onclick="App.navigate('change-requests')">درخواست‌ها</button>
           <button class="btn btn-outline btn-sm" onclick="App.navigate('records')">سوابق</button>
-          <button class="btn btn-outline btn-sm" onclick="App.navigate('reports')">گزارش‌ها و خروجی</button>
+          <button class="btn btn-outline btn-sm" onclick="App.navigate('reports')">گزارش‌ها</button>
           ${role === 'system_admin' ? `<button class="btn btn-outline btn-sm" onclick="App.navigate('import')">ورود Excel</button>` : ''}
         </div>
       </div>
@@ -239,30 +231,26 @@ const App = {
       const current = Documents.getCurrentDocuments().length;
       const obsolete = Documents.documents.filter(d => d.status === 'obsolete').length;
 
-      const elTotal = document.getElementById('stat-total-docs');
-      const elCurrent = document.getElementById('stat-current-docs');
-      const elObsolete = document.getElementById('stat-obsolete-docs');
-      if (elTotal) elTotal.textContent = all;
-      if (elCurrent) elCurrent.textContent = current;
-      if (elObsolete) elObsolete.textContent = obsolete;
+      document.getElementById('stat-total').textContent = all;
+      document.getElementById('stat-current').textContent = current;
+      document.getElementById('stat-obsolete').textContent = obsolete;
+
+      document.getElementById('stat-sop').textContent = Documents.countByCategory('روش اجرایی');
+      document.getElementById('stat-wi').textContent = Documents.countByCategory('دستورالعمل');
+      document.getElementById('stat-form').textContent = Documents.countByCategory('فرم');
+      document.getElementById('stat-support').textContent = Documents.countByCategory('مدرک پشتیبان');
+
+      await Auth.loadUsers();
+      const usersEl = document.getElementById('stat-users');
+      if (usersEl) usersEl.textContent = Auth.users.filter(u => u.active !== false).length;
 
       await Workflow.load();
-      const pendingEl = document.getElementById('stat-pending-review');
-      if (pendingEl) pendingEl.textContent = Workflow.getPendingReview().length;
-      const readyEl = document.getElementById('stat-ready-action');
-      if (readyEl) readyEl.textContent = Workflow.getReadyForAction().length;
-      const myEl = document.getElementById('stat-my-requests');
-      if (myEl) myEl.textContent = Workflow.getMyRequests().length;
-
-      await Records.load();
-      const recEl = document.getElementById('stat-records');
-      if (recEl) recEl.textContent = Records.records.length;
-
-      await Standards.load();
-      const stdEl = document.getElementById('stat-standards');
-      if (stdEl) stdEl.textContent = Standards.standards.length;
+      const pEl = document.getElementById('stat-pending');
+      if (pEl) pEl.textContent = Workflow.getPendingReview().length;
+      const rEl = document.getElementById('stat-ready');
+      if (rEl) rEl.textContent = Workflow.getReadyForAction().length;
     } catch (e) {
-      console.warn('خطا در بارگذاری آمار:', e);
+      console.warn(e);
     }
   }
 };
