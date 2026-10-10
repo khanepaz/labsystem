@@ -202,26 +202,51 @@ const App = {
       case 'change-requests':
         Workflow.renderList(content);
         break;
+      case 'records':
+        Records.renderList(content);
+        break;
+      case 'standards':
+        Standards.renderList(content);
+        break;
       case 'users':
         Users.renderList(content);
         break;
       case 'import':
         ExcelImport.openImportUI(content);
         break;
-      case 'records':
-        content.innerHTML = `<h2>سوابق آزمایشگاه</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
-        break;
-      case 'standards':
-        content.innerHTML = `<h2>استانداردها و بندها</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
-        break;
       case 'reports':
-        content.innerHTML = `<h2>گزارش‌ها</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
+        content.innerHTML = `
+          <h2>گزارش‌ها</h2>
+          <div class="cards-grid mt-2">
+            <div class="card" onclick="App.navigate('documents')">
+              <div class="card-title">فهرست مدارک جاری</div>
+              <div class="card-value" style="font-size:1rem">مشاهده</div>
+            </div>
+            <div class="card" onclick="App.navigate('change-requests')">
+              <div class="card-title">درخواست‌های تغییر</div>
+              <div class="card-value" style="font-size:1rem">مشاهده</div>
+            </div>
+            <div class="card" onclick="App.navigate('records')">
+              <div class="card-title">سوابق ثبت‌شده</div>
+              <div class="card-value" style="font-size:1rem">مشاهده</div>
+            </div>
+          </div>
+          <p class="text-muted mt-2">خروجی Excel و گزارش‌های پیشرفته در نسخه‌های بعدی اضافه می‌شود.</p>
+        `;
         break;
       case 'settings':
-        content.innerHTML = `<h2>تنظیمات</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
+        content.innerHTML = `<h2>تنظیمات</h2><p class="text-muted">تنظیمات عمومی در نسخه‌های بعدی تکمیل می‌شود.</p>`;
         break;
       case 'backup':
-        content.innerHTML = `<h2>پشتیبان‌گیری و بازیابی</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
+        content.innerHTML = `
+          <h2>پشتیبان‌گیری و بازیابی</h2>
+          <p class="text-muted mb-2">
+            سیستم به‌طور خودکار هنگام ذخیره تغییرات مهم، نسخه پشتیبان در پوشه <code>backups/</code> ایجاد می‌کند.
+          </p>
+          <p class="text-muted">
+            برای بازیابی دستی، فایل‌های JSON پشتیبان را از پوشه backups کپی و جایگزین فایل اصلی کنید.
+          </p>
+        `;
         break;
       default:
         content.innerHTML = `<p>صفحه یافت نشد.</p>`;
