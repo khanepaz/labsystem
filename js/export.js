@@ -1,25 +1,30 @@
 /**
- * Laboratory System - Export Module
- * خروجی CSV سازگار با Excel + پشتیبانی از xlsx در صورت وجود کتابخانه
+ * Laboratory System - Export Module (fixed)
  */
 
 const Export = {
-  /**
-   * تبدیل آرایه اشیاء به CSV و دانلود
-   */
   downloadCSV(data, filename = 'export.csv', headers = null) {
     if (!data || !data.length) {
       Utils.showToast('داده‌ای برای خروجی وجود ندارد', 'warning');
       return;
     }
 
-    // تعیین هدرها
-    const keys = headers || Object.keys(data[0]);
-    const headerLabels = headers ? Object.values(headers) : keys;
+    // اگر headers آبجکت باشد، کلیدها و برچسب‌ها را جدا کن
+    let keys, headerLabels;
+    if (headers && typeof headers === 'object' && !Array.isArray(headers)) {
+      keys = Object.keys(headers);
+      headerLabels = Object.values(headers);
+    } else if (Array.isArray(headers)) {
+      keys = headers;
+      headerLabels = headers;
+    } else {
+      keys = Object.keys(data[0]);
+      headerLabels = keys;
+    }
 
-    // ساخت CSV با BOM برای پشتیبانی فارسی در Excel
-    let csv = '\uFEFF'; // BOM
-    csv += headerLabels.map(h => this.escapeCSV(h)).join(',') + '\r\n';
+    // BOM برای نمایش صحیح فارسی در Excel
+    let csv = '\uFEFF';
+    csv += headerLabels.map(h => this.escapeCSV(String(h))).join(',') + '\r\n';
 
     data.forEach(row => {
       const values = keys.map(k => {
@@ -32,7 +37,7 @@ const Export = {
     });
 
     this.triggerDownload(csv, filename, 'text/csv;charset=utf-8');
-    Utils.showToast('فایل CSV آماده دانلود شد', 'success');
+    Utils.showToast('فایل با موفقیت دانلود شد', 'success');
   },
 
   escapeCSV(str) {
@@ -43,173 +48,205 @@ const Export = {
   },
 
   triggerDownload(content, filename, mime) {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    try {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (err) {
+      console.error('Download error:', err);
+      Utils.showToast('خطا در دانلود فایل: ' + err.message, 'error');
+    }
   },
 
-  /**
-   * خروجی مدارک جاری
-   */
   async exportCurrentDocuments() {
-    await Documents.load();
-    const docs = Documents.getCurrentDocuments();
+    try {
+      await Documents.load();
+      const docs = Documents.getCurrentDocuments();
 
-    const data = docs.map(d => ({
-      code: d.code,
-      title: d.title,
-      type: d.type,
-      category: d.categoryName || d.category,
-      revision: d.revision,
-      status: Utils.statusLabel(d.status),
-      effectiveDate: d.effectiveDate ? Utils.toPersianDate(d.effectiveDate) : '',
-      preparedBy: d.preparedBy,
-      reviewedBy: d.reviewedBy,
-      approvedBy: d.approvedBy,
-      filePath: d.filePath,
-      description: d.description
-    }));
+      if (!docs.length) {
+        Utils.showToast('مدرک جاری برای خروجی وجود ندارد', 'warning');
+        return;
+      }
 
-    const headers = {
-      code: 'کد مدرک',
-      title: 'عنوان',
-      type: 'نوع',
-      category: 'دسته‌بندی',
-      revision: 'ویرایش',
-      status: 'وضعیت',
-      effectiveDate: 'تاریخ اجرا',
-      preparedBy: 'مسئول تهیه',
-      reviewedBy: 'مسئول بازنگری',
-      approvedBy: 'مسئول تصویب',
-      filePath: 'مسیر فایل',
-      description: 'توضیحات'
-    };
+      const data = docs.map(d => ({
+        code: d.code || '',
+        title: d.title || '',
+        type: d.type || '',
+        category: d.categoryName || d.category || '',
+        revision: d.revision || '',
+        status: Utils.statusLabel(d.status),
+        effectiveDate: d.effectiveDate ? Utils.toPersianDate(d.effectiveDate) : '',
+        preparedBy: d.preparedBy || '',
+        reviewedBy: d.reviewedBy || '',
+        approvedBy: d.approvedBy || '',
+        filePath: d.filePath || '',
+        description: d.description || ''
+      }));
 
-    this.downloadCSV(data, `مدارک_جاری_${this.dateStamp()}.csv`, headers);
+      const headers = {
+        code: 'کد مدرک',
+        title: 'عنوان',
+        type: 'نوع',
+        category: 'دسته‌بندی',
+        revision: 'ویرایش',
+        status: 'وضعیت',
+        effectiveDate: 'تاریخ اجرا',
+        preparedBy: 'مسئول تهیه',
+        reviewedBy: 'مسئول بازنگری',
+        approvedBy: 'مسئول تصویب',
+        filePath: 'مسیر فایل',
+        description: 'توضیحات'
+      };
+
+      this.downloadCSV(data, 'documents_' + this.dateStamp() + '.csv', headers);
+    } catch (err) {
+      console.error(err);
+      Utils.showToast('خطا در خروجی مدارک: ' + err.message, 'error');
+    }
   },
 
-  /**
-   * خروجی درخواست‌های تغییر
-   */
   async exportChangeRequests() {
-    await Workflow.load();
-    const data = Workflow.requests.map(r => ({
-      id: r.id,
-      documentCode: r.documentCode,
-      documentTitle: r.documentTitle,
-      currentRevision: r.currentRevision,
-      requester: r.requesterName,
-      createdAt: Utils.toPersianDate(r.createdAt),
-      reason: r.reason,
-      priority: r.priority,
-      status: Utils.statusLabel(r.status),
-      qualityDecision: r.qualityDecision ? (r.qualityDecision === 'approved' ? 'تأیید' : 'رد') : '',
-      qualityComment: r.qualityComment || '',
-      newRevision: r.newRevision || ''
-    }));
+    try {
+      await Workflow.load();
+      if (!Workflow.requests.length) {
+        Utils.showToast('درخواستی برای خروجی وجود ندارد', 'warning');
+        return;
+      }
 
-    const headers = {
-      id: 'شناسه',
-      documentCode: 'کد مدرک',
-      documentTitle: 'عنوان مدرک',
-      currentRevision: 'ویرایش جاری',
-      requester: 'درخواست‌دهنده',
-      createdAt: 'تاریخ ثبت',
-      reason: 'علت',
-      priority: 'فوریت',
-      status: 'وضعیت',
-      qualityDecision: 'تصمیم کیفیت',
-      qualityComment: 'توضیح کیفیت',
-      newRevision: 'ویرایش جدید'
-    };
+      const data = Workflow.requests.map(r => ({
+        id: r.id || '',
+        documentCode: r.documentCode || '',
+        documentTitle: r.documentTitle || '',
+        currentRevision: r.currentRevision || '',
+        requester: r.requesterName || '',
+        createdAt: Utils.toPersianDate(r.createdAt),
+        reason: r.reason || '',
+        priority: r.priority || '',
+        status: Utils.statusLabel(r.status),
+        qualityDecision: r.qualityDecision === 'approved' ? 'تأیید' : (r.qualityDecision === 'rejected' ? 'رد' : ''),
+        qualityComment: r.qualityComment || '',
+        newRevision: r.newRevision || ''
+      }));
 
-    this.downloadCSV(data, `درخواست_تغییر_${this.dateStamp()}.csv`, headers);
+      const headers = {
+        id: 'شناسه',
+        documentCode: 'کد مدرک',
+        documentTitle: 'عنوان مدرک',
+        currentRevision: 'ویرایش جاری',
+        requester: 'درخواست‌دهنده',
+        createdAt: 'تاریخ ثبت',
+        reason: 'علت',
+        priority: 'فوریت',
+        status: 'وضعیت',
+        qualityDecision: 'تصمیم کیفیت',
+        qualityComment: 'توضیح کیفیت',
+        newRevision: 'ویرایش جدید'
+      };
+
+      this.downloadCSV(data, 'change_requests_' + this.dateStamp() + '.csv', headers);
+    } catch (err) {
+      console.error(err);
+      Utils.showToast('خطا در خروجی درخواست‌ها: ' + err.message, 'error');
+    }
   },
 
-  /**
-   * خروجی سوابق
-   */
   async exportRecords() {
-    await Records.load();
-    const data = Records.records.map(r => ({
-      title: r.title,
-      path: r.path,
-      type: r.type,
-      relatedTo: r.relatedTo,
-      fileExists: r.fileExists === false ? 'مفقود' : 'موجود',
-      createdAt: Utils.toPersianDate(r.createdAt),
-      notes: r.notes || ''
-    }));
+    try {
+      await Records.load();
+      if (!Records.records.length) {
+        Utils.showToast('سابقه‌ای برای خروجی وجود ندارد', 'warning');
+        return;
+      }
 
-    const headers = {
-      title: 'عنوان',
-      path: 'مسیر',
-      type: 'نوع',
-      relatedTo: 'مرتبط با',
-      fileExists: 'وضعیت فایل',
-      createdAt: 'تاریخ ثبت',
-      notes: 'توضیحات'
-    };
+      const data = Records.records.map(r => ({
+        title: r.title || r.fileName || '',
+        path: r.path || '',
+        type: r.type || '',
+        relatedTo: r.relatedTo || '',
+        fileExists: r.fileExists === false ? 'مفقود' : 'موجود',
+        createdAt: Utils.toPersianDate(r.createdAt),
+        notes: r.notes || ''
+      }));
 
-    this.downloadCSV(data, `سوابق_${this.dateStamp()}.csv`, headers);
+      const headers = {
+        title: 'عنوان',
+        path: 'مسیر',
+        type: 'نوع',
+        relatedTo: 'مرتبط با',
+        fileExists: 'وضعیت فایل',
+        createdAt: 'تاریخ ثبت',
+        notes: 'توضیحات'
+      };
+
+      this.downloadCSV(data, 'records_' + this.dateStamp() + '.csv', headers);
+    } catch (err) {
+      console.error(err);
+      Utils.showToast('خطا در خروجی سوابق: ' + err.message, 'error');
+    }
   },
 
   dateStamp() {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
   },
 
-  /**
-   * رندر صفحه گزارش‌ها با دکمه‌های خروجی
-   */
   renderReportsPage(container) {
     container.innerHTML = `
-      <h2>گزارش‌ها و خروجی</h2>
-      <p class="text-muted mb-2">خروجی‌ها به صورت CSV و سازگار با Microsoft Excel تولید می‌شوند (پشتیبانی کامل فارسی).</p>
+      <h2>گزارش‌ها و خروجی Excel</h2>
+      <p class="text-muted mb-2">با کلیک روی دکمه دانلود، فایل CSV (قابل باز شدن در Excel) ذخیره می‌شود.</p>
 
       <div class="cards-grid">
-        <div class="card">
+        <div class="card" style="cursor:default">
           <div class="card-title">مدارک جاری</div>
-          <div class="card-value" style="font-size:1rem;margin-bottom:0.75rem">فهرست کامل مدارک با وضعیت جاری</div>
-          <button class="btn btn-primary btn-sm" id="btn-export-docs">دانلود Excel (CSV)</button>
+          <div class="card-value" style="font-size:0.95rem;margin-bottom:0.75rem">فهرست کامل مدارک جاری</div>
+          <button class="btn btn-primary btn-sm" id="btn-export-docs" type="button">دانلود Excel</button>
         </div>
 
-        <div class="card">
+        <div class="card" style="cursor:default">
           <div class="card-title">درخواست‌های تغییر</div>
-          <div class="card-value" style="font-size:1rem;margin-bottom:0.75rem">تمام درخواست‌ها با وضعیت و تصمیم‌ها</div>
-          <button class="btn btn-primary btn-sm" id="btn-export-cr">دانلود Excel (CSV)</button>
+          <div class="card-value" style="font-size:0.95rem;margin-bottom:0.75rem">وضعیت و تصمیم‌ها</div>
+          <button class="btn btn-primary btn-sm" id="btn-export-cr" type="button">دانلود Excel</button>
         </div>
 
-        <div class="card">
+        <div class="card" style="cursor:default">
           <div class="card-title">سوابق آزمایشگاه</div>
-          <div class="card-value" style="font-size:1rem;margin-bottom:0.75rem">فهرست سوابق ثبت‌شده</div>
-          <button class="btn btn-primary btn-sm" id="btn-export-records">دانلود Excel (CSV)</button>
-        </div>
-
-        <div class="card" onclick="App.navigate('documents')">
-          <div class="card-title">مشاهده مدارک</div>
-          <div class="card-value" style="font-size:1rem">رفتن به فهرست</div>
+          <div class="card-value" style="font-size:0.95rem;margin-bottom:0.75rem">فهرست سوابق</div>
+          <button class="btn btn-primary btn-sm" id="btn-export-records" type="button">دانلود Excel</button>
         </div>
       </div>
 
-      <div class="table-container mt-2" style="padding:1.25rem">
-        <h3 class="mb-1">نکته</h3>
-        <p class="text-muted" style="font-size:0.9rem;margin:0">
-          فایل‌های CSV با کدگذاری UTF-8 و BOM تولید می‌شوند تا در Excel فارسی به‌درستی نمایش داده شوند.
-          می‌توانید فایل را مستقیماً با Microsoft Excel باز کنید.
+      <div class="table-container mt-2" style="padding:1.1rem">
+        <p class="text-muted" style="font-size:0.88rem;margin:0">
+          فایل با فرمت CSV و پشتیبانی فارسی دانلود می‌شود. آن را با Microsoft Excel باز کنید.
+          اگر دانلود انجام نشد، تنظیمات مسدودکننده دانلود مرورگر را بررسی کنید.
         </p>
       </div>
     `;
 
-    document.getElementById('btn-export-docs')?.addEventListener('click', () => this.exportCurrentDocuments());
-    document.getElementById('btn-export-cr')?.addEventListener('click', () => this.exportChangeRequests());
-    document.getElementById('btn-export-records')?.addEventListener('click', () => this.exportRecords());
+    document.getElementById('btn-export-docs')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.exportCurrentDocuments();
+    });
+    document.getElementById('btn-export-cr')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.exportChangeRequests();
+    });
+    document.getElementById('btn-export-records')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.exportRecords();
+    });
   }
 };
 
