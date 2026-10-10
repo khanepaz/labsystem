@@ -1,14 +1,17 @@
 /**
  * Laboratory System - Records Management
- * مدیریت سوابق + اسکن واقعی پوشه records
+ * نمایش درختی پوشه‌ها + اسکن واقعی
  */
 
 const Records = {
   records: [],
+  tree: {},           // ساختار درختی
+  expanded: new Set(['records']), // پوشه‌های باز
 
   async load() {
     const data = await Storage.readJSON('records-index.json');
     this.records = data?.records || [];
+    this.buildTree();
     return this.records;
   },
 
@@ -17,7 +20,49 @@ const Records = {
   },
 
   /**
-   * اسکن واقعی پوشه records (و زیرپوشه‌ها)
+   * ساخت ساختار درختی از لیست فایل‌ها
+   */
+  buildTree() {
+    this.tree = { name: 'records', path: 'records', type: 'folder', children: {}, files: [] };
+
+    this.records.forEach(r => {
+      if (!r.path) {
+        this.tree.files.push(r);
+        return;
+      }
+
+      const parts = r.path.replace(/\\/g, '/').split('/').filter(Boolean);
+      // حذف records از اول مسیر اگر وجود داشته باشد
+      if (parts[0] === 'records') parts.shift();
+
+      let current = this.tree;
+
+      // ساخت پوشه‌ها
+      for (let i = 0; i < parts.length - 1; i++) {
+        const folderName = parts[i];
+        if (!current.children[folderName]) {
+          current.children[folderName] = {
+            name: folderName,
+            path: (current.path ? current.path + '/' : '') + folderName,
+            type: 'folder',
+            children: {},
+            files: []
+          };
+        }
+        current = current.children[folderName];
+      }
+
+      // اضافه کردن فایل
+      if (parts.length > 0) {
+        current.files.push(r);
+      } else {
+        this.tree.files.push(r);
+      }
+    });
+  },
+
+  /**
+   * اسکن واقعی پوشه records
    */
   async scanRecordsFolder() {
     if (!Storage.useFSAccess || !Storage.dirHandle) {
@@ -28,7 +73,7 @@ const Records = {
     try {
       recordsDir = await Storage.dirHandle.getDirectoryHandle('records', { create: true });
     } catch (err) {
-      throw new Error('امکان دسترسی به پوشه records وجود ندارد: ' + err.message);
+      throw new Error('امکان دسترسی به پوشه records وجود ندارد.');
     }
 
     const foundFiles = [];
@@ -48,23 +93,19 @@ const Records = {
           foundFiles.push({
             fileName: entry.name,
             path: entryPath,
-            type,
-            size: null
+            type
           });
         } else if (entry.kind === 'directory') {
           try {
             const subDir = await dirHandle.getDirectoryHandle(entry.name);
             await walk(subDir, entryPath);
-          } catch (e) {
-            console.warn('خطا در ورود به پوشه:', entryPath, e);
-          }
+          } catch (e) {}
         }
       }
     }
 
     await walk(recordsDir);
 
-    // ادغام با فهرست موجود
     await this.load();
     const existingByPath = {};
     this.records.forEach(r => {
@@ -79,12 +120,10 @@ const Records = {
       seenPaths.add(key);
 
       if (existingByPath[key]) {
-        // به‌روزرسانی وضعیت موجود بودن
         existingByPath[key].fileExists = true;
         existingByPath[key].lastScanned = Utils.nowISO();
         newRecords.push(existingByPath[key]);
       } else {
-        // فایل جدید
         newRecords.push({
           id: Utils.generateId('rec'),
           title: f.fileName,
@@ -101,26 +140,59 @@ const Records = {
       }
     }
 
-    // فایل‌هایی که قبلاً بودند ولی دیگر در پوشه نیستند → مفقود
+    // فایل‌های مفقود
     for (const r of this.records) {
       if (r.path && !seenPaths.has(r.path.toLowerCase())) {
         r.fileExists = false;
         r.lastScanned = Utils.nowISO();
         newRecords.push(r);
       } else if (!r.path) {
-        // سوابق دستی بدون مسیر
         newRecords.push(r);
       }
     }
 
     this.records = newRecords;
     await this.save();
+    this.buildTree();
 
     return {
       total: foundFiles.length,
       newCount: foundFiles.filter(f => !existingByPath[f.path.toLowerCase()]).length,
       missing: this.records.filter(r => r.fileExists === false).length
     };
+  },
+
+  /**
+   * باز کردن فایل سابقه
+   */
+  async openRecordFile(record) {
+    if (!record.path) {
+      Utils.showToast('مسیر فایل ثبت نشده', 'warning');
+      return;
+    }
+
+    if (!Storage.useFSAccess || !Storage.dirHandle) {
+      Utils.showToast('پوشه داده‌ها انتخاب نشده', 'warning');
+      return;
+    }
+
+    try {
+      const parts = record.path.replace(/\\/g, '/').split('/').filter(Boolean);
+      let handle = Storage.dirHandle;
+
+      for (let i = 0; i < parts.length - 1; i++) {
+        handle = await handle.getDirectoryHandle(parts[i]);
+      }
+
+      const fileHandle = await handle.getFileHandle(parts[parts.length - 1]);
+      const file = await fileHandle.getFile();
+      const url = URL.createObjectURL(file);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      Utils.showToast('فایل باز شد', 'success');
+    } catch (err) {
+      Utils.showToast('فایل یافت نشد: ' + record.path, 'error');
+    }
   },
 
   async renderList(container) {
@@ -130,53 +202,29 @@ const Records = {
       <div class="flex gap-2 mb-2" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
         <h2 style="margin:0">سوابق آزمایشگاه</h2>
         <div class="flex gap-1">
-          <input type="text" id="records-search" placeholder="جستجو در نام یا مسیر..." style="width:200px">
           <button class="btn btn-outline btn-sm" id="btn-scan-records">اسکن پوشه records</button>
           <button class="btn btn-primary btn-sm" id="btn-add-record">+ افزودن دستی</button>
         </div>
       </div>
 
       <p class="text-muted mb-2" style="font-size:0.9rem">
-        با دکمه «اسکن پوشه records» تمام فایل‌های داخل پوشه <code>records/</code> (و زیرپوشه‌ها) شناسایی می‌شوند.
-        سوابق از مدارک کنترل‌شده کاملاً جدا هستند.
+        ساختار درختی پوشه <code>records/</code> نمایش داده می‌شود. روی پوشه‌ها کلیک کنید تا باز/بسته شوند.
       </p>
 
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>نام فایل / عنوان</th>
-              <th>مسیر</th>
-              <th>نوع</th>
-              <th>مرتبط با</th>
-              <th>وضعیت فایل</th>
-              <th>عملیات</th>
-            </tr>
-          </thead>
-          <tbody id="records-tbody">
-            ${this.renderRows(this.records)}
-          </tbody>
-        </table>
+      <div class="table-container" style="padding:1rem" id="records-tree">
+        ${this.renderTree(this.tree, 0)}
       </div>
 
-      <p class="text-muted mt-2" id="records-count">تعداد: ${this.records.length} سابقه</p>
+      <p class="text-muted mt-2">تعداد کل فایل‌ها: ${this.records.length}</p>
     `;
-
-    document.getElementById('records-search')?.addEventListener('input', (e) => {
-      this.filterAndRender(e.target.value);
-    });
 
     document.getElementById('btn-scan-records')?.addEventListener('click', async () => {
       const btn = document.getElementById('btn-scan-records');
       btn.disabled = true;
       btn.textContent = 'در حال اسکن...';
-
       try {
         const result = await this.scanRecordsFolder();
-        Utils.showToast(
-          `اسکن انجام شد: ${result.total} فایل یافت شد، ${result.newCount} مورد جدید، ${result.missing} مفقود`,
-          'success'
-        );
+        Utils.showToast(`اسکن انجام شد: ${result.total} فایل، ${result.newCount} جدید، ${result.missing} مفقود`, 'success');
         this.renderList(container);
       } catch (err) {
         Utils.showToast(err.message, 'error');
@@ -187,51 +235,85 @@ const Records = {
 
     document.getElementById('btn-add-record')?.addEventListener('click', () => this.openAddForm());
 
-    document.getElementById('records-tbody')?.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-action]');
-      if (!btn) return;
-      const id = btn.dataset.id;
-      if (btn.dataset.action === 'delete') this.deleteRecord(id);
+    // رویدادهای درخت
+    document.getElementById('records-tree')?.addEventListener('click', (e) => {
+      const folderBtn = e.target.closest('[data-folder]');
+      if (folderBtn) {
+        const path = folderBtn.dataset.folder;
+        if (this.expanded.has(path)) this.expanded.delete(path);
+        else this.expanded.add(path);
+        document.getElementById('records-tree').innerHTML = this.renderTree(this.tree, 0);
+        return;
+      }
+
+      const openBtn = e.target.closest('[data-open-file]');
+      if (openBtn) {
+        const id = openBtn.dataset.openFile;
+        const rec = this.records.find(r => r.id === id);
+        if (rec) this.openRecordFile(rec);
+      }
+
+      const delBtn = e.target.closest('[data-delete]');
+      if (delBtn) {
+        this.deleteRecord(delBtn.dataset.delete);
+      }
     });
   },
 
-  renderRows(list) {
-    if (!list.length) {
-      return `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted)">سابقه‌ای ثبت نشده است. پوشه records را اسکن کنید یا دستی اضافه کنید.</td></tr>`;
+  renderTree(node, level) {
+    if (!node) return '';
+
+    let html = '';
+    const isExpanded = this.expanded.has(node.path);
+    const hasChildren = Object.keys(node.children || {}).length > 0 || (node.files || []).length > 0;
+    const indent = level * 18;
+
+    // خود پوشه
+    if (level === 0 || node.name) {
+      html += `
+        <div style="padding:0.35rem 0;padding-right:${indent}px;cursor:pointer;user-select:none" data-folder="${node.path}">
+          <span style="margin-left:0.4rem">${isExpanded ? '📂' : '📁'}</span>
+          <strong>${node.name || 'records'}</strong>
+          <span class="text-muted" style="font-size:0.8rem;margin-right:0.5rem">
+            (${Object.keys(node.children || {}).length} پوشه، ${(node.files || []).length} فایل)
+          </span>
+        </div>
+      `;
     }
 
-    return list.map(r => `
-      <tr>
-        <td><strong>${r.title || r.fileName || '—'}</strong></td>
-        <td style="font-size:0.85rem;max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${r.path || ''}">${r.path || '—'}</td>
-        <td>${r.type || '—'}</td>
-        <td>${r.relatedTo || '—'}</td>
-        <td>
-          <span class="status ${r.fileExists === false ? 'status-obsolete' : 'status-current'}">
-            ${r.fileExists === false ? 'فایل مفقود' : 'موجود'}
-          </span>
-        </td>
-        <td>
-          <button class="btn btn-sm btn-outline" data-action="delete" data-id="${r.id}">حذف از فهرست</button>
-        </td>
-      </tr>
-    `).join('');
+    if (!isExpanded && level > 0) return html;
+
+    // زیرپوشه‌ها
+    const folders = Object.values(node.children || {}).sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+    for (const folder of folders) {
+      html += this.renderTree(folder, level + 1);
+    }
+
+    // فایل‌های این پوشه
+    if (isExpanded || level === 0) {
+      const files = (node.files || []).sort((a, b) => (a.fileName || a.title || '').localeCompare(b.fileName || b.title || '', 'fa'));
+      for (const f of files) {
+        const fileIndent = (level + 1) * 18;
+        html += `
+          <div style="padding:0.3rem 0;padding-right:${fileIndent}px;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid #f1f5f9">
+            <span>${this.fileIcon(f.type)}</span>
+            <span style="flex:1">${f.fileName || f.title}</span>
+            <span class="status ${f.fileExists === false ? 'status-obsolete' : 'status-current'}" style="font-size:0.75rem">
+              ${f.fileExists === false ? 'مفقود' : 'موجود'}
+            </span>
+            <button class="btn btn-sm btn-outline" data-open-file="${f.id}">باز کردن</button>
+            <button class="btn btn-sm btn-outline" data-delete="${f.id}">حذف</button>
+          </div>
+        `;
+      }
+    }
+
+    return html;
   },
 
-  filterAndRender(search) {
-    let list = this.records;
-    if (search && search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(r =>
-        (r.title || '').toLowerCase().includes(q) ||
-        (r.fileName || '').toLowerCase().includes(q) ||
-        (r.path || '').toLowerCase().includes(q)
-      );
-    }
-    const tbody = document.getElementById('records-tbody');
-    if (tbody) tbody.innerHTML = this.renderRows(list);
-    const countEl = document.getElementById('records-count');
-    if (countEl) countEl.textContent = `تعداد: ${list.length} سابقه`;
+  fileIcon(type) {
+    const map = { pdf: '📄', excel: '📊', image: '🖼️', report: '📝', other: '📎' };
+    return map[type] || '📎';
   },
 
   openAddForm() {
@@ -246,8 +328,8 @@ const Records = {
         <input type="text" id="rec-title" required>
       </div>
       <div class="form-group">
-        <label>مسیر فایل</label>
-        <input type="text" id="rec-path" placeholder="مثال: records/2024/test-report.pdf">
+        <label>مسیر فایل (نسبت به پوشه داده‌ها)</label>
+        <input type="text" id="rec-path" placeholder="مثال: records/1403/گزارش.pdf">
       </div>
       <div class="form-group">
         <label>نوع</label>
@@ -260,12 +342,8 @@ const Records = {
         </select>
       </div>
       <div class="form-group">
-        <label>مرتبط با (اختیاری)</label>
-        <input type="text" id="rec-related" placeholder="کد مدرک، آزمون یا فرآیند">
-      </div>
-      <div class="form-group">
-        <label>توضیحات</label>
-        <textarea id="rec-notes" rows="2"></textarea>
+        <label>مرتبط با</label>
+        <input type="text" id="rec-related" placeholder="کد مدرک یا فرآیند">
       </div>
     `;
 
@@ -275,7 +353,6 @@ const Records = {
     `;
 
     Utils.show('modal-overlay');
-
     document.getElementById('btn-cancel-record').onclick = () => Utils.hide('modal-overlay');
     document.getElementById('modal-close').onclick = () => Utils.hide('modal-overlay');
 
@@ -286,21 +363,18 @@ const Records = {
         return;
       }
 
-      const record = {
+      this.records.unshift({
         id: Utils.generateId('rec'),
         title,
         fileName: title,
         path: document.getElementById('rec-path').value.trim(),
         type: document.getElementById('rec-type').value,
         relatedTo: document.getElementById('rec-related').value.trim(),
-        notes: document.getElementById('rec-notes').value.trim(),
         fileExists: true,
         createdAt: Utils.nowISO(),
-        createdBy: Auth.currentUser?.displayName,
         source: 'manual'
-      };
+      });
 
-      this.records.unshift(record);
       await this.save();
       Utils.hide('modal-overlay');
       Utils.showToast('سابقه اضافه شد', 'success');
@@ -309,11 +383,10 @@ const Records = {
   },
 
   async deleteRecord(id) {
-    if (!Utils.confirm('آیا از حذف این سابقه از فهرست مطمئن هستید؟\n(فایل فیزیکی حذف نمی‌شود)')) return;
-
+    if (!Utils.confirm('آیا از حذف این مورد از فهرست مطمئن هستید؟\n(فایل فیزیکی حذف نمی‌شود)')) return;
     this.records = this.records.filter(r => r.id !== id);
     await this.save();
-    Utils.showToast('سابقه از فهرست حذف شد', 'success');
+    Utils.showToast('حذف شد', 'success');
     this.renderList(document.getElementById('content'));
   }
 };
