@@ -7,7 +7,7 @@ const App = {
     console.log('Laboratory System starting...');
 
     if (!window.crypto || !window.crypto.subtle) {
-      console.warn('Web Crypto API در دسترس نیست. هش رمز عبور از روش ساده‌تر استفاده می‌کند.');
+      console.warn('Web Crypto API در دسترس نیست.');
     }
 
     try {
@@ -30,10 +30,8 @@ const App = {
       <div class="loading-box">
         <h1>مرورگر پشتیبانی نمی‌شود</h1>
         <p style="max-width:400px;margin:1rem auto;color:var(--text-muted)">
-          برای استفاده از این نرم‌افزار به مرورگر Microsoft Edge یا Google Chrome نسخه جدید نیاز دارید
-          (پشتیبانی از File System Access API).
+          برای استفاده از این نرم‌افزار به مرورگر Microsoft Edge یا Google Chrome نسخه جدید نیاز دارید.
         </p>
-        <p class="text-muted">Firefox و مرورگرهای قدیمی پشتیبانی کامل ندارند.</p>
       </div>
     `;
   },
@@ -46,12 +44,8 @@ const App = {
         <h1>سیستم مدیریت آزمایشگاه</h1>
         <p class="text-muted" style="margin:1rem 0 1.5rem">
           برای شروع، پوشه داده‌های مشترک را انتخاب کنید.
-          اگر اولین بار است که سیستم را اجرا می‌کنید، مراحل راه‌اندازی آغاز خواهد شد.
         </p>
         <button id="btn-start-select" class="btn btn-primary">انتخاب پوشه داده‌ها</button>
-        <p class="text-muted mt-2" style="font-size:0.85rem">
-          توجه: در صورت استفاده از Share شبکه، ممکن است محدودیت‌هایی وجود داشته باشد.
-        </p>
       </div>
     `;
 
@@ -68,14 +62,12 @@ const App = {
   async checkSetupStatus() {
     try {
       const config = await Storage.getSystemConfig();
-
       if (!config || config.setupStatus !== 'completed') {
         Setup.start();
       } else {
         this.showLogin();
       }
     } catch (err) {
-      console.error(err);
       Setup.start();
     }
   },
@@ -92,7 +84,6 @@ const App = {
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
       const errorEl = document.getElementById('login-error');
-
       Utils.hide(errorEl);
 
       const result = await Auth.login(username, password);
@@ -115,9 +106,7 @@ const App = {
       `${Auth.currentUser.displayName} (${Auth.currentUser.roleName})`;
 
     Storage.readJSON('organization.json').then(org => {
-      if (org) {
-        document.getElementById('org-name').textContent = org.name || '';
-      }
+      if (org) document.getElementById('org-name').textContent = org.name || '';
     });
 
     this.buildSidebar();
@@ -162,8 +151,7 @@ const App = {
     sidebar.querySelectorAll('a').forEach(a => {
       a.addEventListener('click', (e) => {
         e.preventDefault();
-        const page = a.dataset.page;
-        this.navigate(page);
+        this.navigate(a.dataset.page);
         sidebar.querySelectorAll('a').forEach(x => x.classList.remove('active'));
         a.classList.add('active');
       });
@@ -215,24 +203,7 @@ const App = {
         ExcelImport.openImportUI(content);
         break;
       case 'reports':
-        content.innerHTML = `
-          <h2>گزارش‌ها</h2>
-          <div class="cards-grid mt-2">
-            <div class="card" onclick="App.navigate('documents')">
-              <div class="card-title">فهرست مدارک جاری</div>
-              <div class="card-value" style="font-size:1rem">مشاهده</div>
-            </div>
-            <div class="card" onclick="App.navigate('change-requests')">
-              <div class="card-title">درخواست‌های تغییر</div>
-              <div class="card-value" style="font-size:1rem">مشاهده</div>
-            </div>
-            <div class="card" onclick="App.navigate('records')">
-              <div class="card-title">سوابق ثبت‌شده</div>
-              <div class="card-value" style="font-size:1rem">مشاهده</div>
-            </div>
-          </div>
-          <p class="text-muted mt-2">خروجی Excel و گزارش‌های پیشرفته در نسخه‌های بعدی اضافه می‌شود.</p>
-        `;
+        Export.renderReportsPage(content);
         break;
       case 'settings':
         content.innerHTML = `<h2>تنظیمات</h2><p class="text-muted">تنظیمات عمومی در نسخه‌های بعدی تکمیل می‌شود.</p>`;
@@ -294,42 +265,31 @@ const App = {
     container.innerHTML = `
       <h2>داشبورد</h2>
       <p class="text-muted mb-2">خوش آمدید، ${Auth.currentUser.displayName}</p>
-      <div class="cards-grid">
-        ${cardsHtml}
-      </div>
+      <div class="cards-grid">${cardsHtml}</div>
       <div class="table-container mt-2">
         <p style="padding:1.5rem;text-align:center;color:var(--text-muted)">
-          سیستم آماده استفاده است. از منوی کناری بخش‌های مختلف را مدیریت کنید.
+          سیستم آماده استفاده است.
         </p>
       </div>
     `;
 
     try {
       await Documents.load();
-      const currentCount = Documents.getCurrentDocuments().length;
       const el = document.getElementById('stat-current-docs');
-      if (el) el.textContent = currentCount;
+      if (el) el.textContent = Documents.getCurrentDocuments().length;
 
       await Workflow.load();
-      const pending = Workflow.getPendingReview().length;
       const pendingEl = document.getElementById('stat-pending-review');
-      if (pendingEl) pendingEl.textContent = pending;
+      if (pendingEl) pendingEl.textContent = Workflow.getPendingReview().length;
 
-      const ready = Workflow.getReadyForAction().length;
       const readyEl = document.getElementById('stat-ready-action');
-      if (readyEl) readyEl.textContent = ready;
+      if (readyEl) readyEl.textContent = Workflow.getReadyForAction().length;
 
-      const myReqs = Workflow.getMyRequests().length;
       const myEl = document.getElementById('stat-my-requests');
-      if (myEl) myEl.textContent = myReqs;
-    } catch (e) {
-      console.warn('خطا در بارگذاری آمار:', e);
-    }
+      if (myEl) myEl.textContent = Workflow.getMyRequests().length;
+    } catch (e) {}
   }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-  App.init();
-});
-
+document.addEventListener('DOMContentLoaded', () => App.init());
 window.App = App;
