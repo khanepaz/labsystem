@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>سیستم مدیریت آزمایشگاه | Laboratory System</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- کتابخانه‌های محلی بعداً اضافه می‌شوند -->
+</head>
+<body>
+  <div id="app">
+    <!-- صفحه بارگذاری اولیه -->
+    <div id="loading-screen" class="screen">
+      <div class="loading-box">
+        <div class="spinner"></div>
+        <h1>سیستم مدیریت آزمایشگاه</h1>
+        <p>در حال بارگذاری...</p>
+      </div>
+    </div>
+
+    <!-- صفحه راه‌اندازی اولیه (فقط یک بار برای مجموعه داده مشترک) -->
+    <div id="setup-screen" class="screen hidden">
+      <div class="setup-container">
+        <h1>راه‌اندازی اولیه سیستم</h1>
+        <p class="setup-desc">این مراحل فقط یک بار برای مجموعه داده مشترک انجام می‌شود.</p>
+        
+        <div id="setup-steps">
+          <!-- مراحل به صورت پویا اضافه می‌شوند -->
+        </div>
+      </div>
+    </div>
+
+    <!-- صفحه ورود -->
+    <div id="login-screen" class="screen hidden">
+      <div class="login-box">
+        <h1>ورود به سیستم</h1>
+        <form id="login-form">
+          <div class="form-group">
+            <label for="username">نام کاربری</label>
+            <input type="text" id="username" required autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label for="password">رمز عبور</label>
+            <input type="password" id="password" required autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn btn-primary">ورود</button>
+          <p id="login-error" class="error-message hidden"></p>
+        </form>
+      </div>
+    </div>
+
+    <!-- صفحه اصلی برنامه (پس از ورود) -->
+    <div id="main-screen" class="screen hidden">
+      <header class="app-header">
+        <div class="header-right">
+          <h1 class="app-title">سیستم مدیریت آزمایشگاه</h1>
+          <span id="org-name" class="org-name"></span>
+        </div>
+        <div class="header-left">
+          <span id="current-user" class="current-user"></span>
+          <button id="btn-logout" class="btn btn-outline">خروج</button>
+        </div>
+      </header>
+
+      <nav class="sidebar" id="sidebar">
+        <!-- منو بر اساس نقش پر می‌شود -->
+      </nav>
+
+      <main class="content" id="content">
+        <!-- محتوای صفحات اینجا لود می‌شود -->
+      </main>
+    </div>
+
+    <!-- مودال‌های عمومی -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <div class="modal" id="modal">
+        <div class="modal-header">
+          <h2 id="modal-title"></h2>
+          <button class="modal-close" id="modal-close">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-body"></div>
+        <div class="modal-footer" id="modal-footer"></div>
+      </div>
+    </div>
+
+    <!-- اعلان‌ها -->
+    <div id="toast-container"></div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/setup.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
