@@ -1,6 +1,6 @@
 /**
  * Laboratory System - Records Management
- * مدیریت سوابق جدا از مدارک کنترل‌شده
+ * مدیریت سوابق + اسکن واقعی پوشه records
  */
 
 const Records = {
@@ -16,6 +16,113 @@ const Records = {
     await Storage.writeJSON('records-index.json', { records: this.records });
   },
 
+  /**
+   * اسکن واقعی پوشه records (و زیرپوشه‌ها)
+   */
+  async scanRecordsFolder() {
+    if (!Storage.useFSAccess || !Storage.dirHandle) {
+      throw new Error('پوشه داده‌ها انتخاب نشده است.');
+    }
+
+    let recordsDir;
+    try {
+      recordsDir = await Storage.dirHandle.getDirectoryHandle('records', { create: true });
+    } catch (err) {
+      throw new Error('امکان دسترسی به پوشه records وجود ندارد: ' + err.message);
+    }
+
+    const foundFiles = [];
+
+    async function walk(dirHandle, relativePath = 'records') {
+      for await (const entry of dirHandle.values()) {
+        const entryPath = relativePath + '/' + entry.name;
+
+        if (entry.kind === 'file') {
+          const ext = entry.name.split('.').pop().toLowerCase();
+          let type = 'other';
+          if (['pdf'].includes(ext)) type = 'pdf';
+          else if (['xls', 'xlsx', 'csv'].includes(ext)) type = 'excel';
+          else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) type = 'image';
+          else if (['doc', 'docx', 'txt'].includes(ext)) type = 'report';
+
+          foundFiles.push({
+            fileName: entry.name,
+            path: entryPath,
+            type,
+            size: null
+          });
+        } else if (entry.kind === 'directory') {
+          try {
+            const subDir = await dirHandle.getDirectoryHandle(entry.name);
+            await walk(subDir, entryPath);
+          } catch (e) {
+            console.warn('خطا در ورود به پوشه:', entryPath, e);
+          }
+        }
+      }
+    }
+
+    await walk(recordsDir);
+
+    // ادغام با فهرست موجود
+    await this.load();
+    const existingByPath = {};
+    this.records.forEach(r => {
+      if (r.path) existingByPath[r.path.toLowerCase()] = r;
+    });
+
+    const newRecords = [];
+    const seenPaths = new Set();
+
+    for (const f of foundFiles) {
+      const key = f.path.toLowerCase();
+      seenPaths.add(key);
+
+      if (existingByPath[key]) {
+        // به‌روزرسانی وضعیت موجود بودن
+        existingByPath[key].fileExists = true;
+        existingByPath[key].lastScanned = Utils.nowISO();
+        newRecords.push(existingByPath[key]);
+      } else {
+        // فایل جدید
+        newRecords.push({
+          id: Utils.generateId('rec'),
+          title: f.fileName,
+          fileName: f.fileName,
+          path: f.path,
+          type: f.type,
+          relatedTo: '',
+          notes: '',
+          fileExists: true,
+          createdAt: Utils.nowISO(),
+          lastScanned: Utils.nowISO(),
+          source: 'scan'
+        });
+      }
+    }
+
+    // فایل‌هایی که قبلاً بودند ولی دیگر در پوشه نیستند → مفقود
+    for (const r of this.records) {
+      if (r.path && !seenPaths.has(r.path.toLowerCase())) {
+        r.fileExists = false;
+        r.lastScanned = Utils.nowISO();
+        newRecords.push(r);
+      } else if (!r.path) {
+        // سوابق دستی بدون مسیر
+        newRecords.push(r);
+      }
+    }
+
+    this.records = newRecords;
+    await this.save();
+
+    return {
+      total: foundFiles.length,
+      newCount: foundFiles.filter(f => !existingByPath[f.path.toLowerCase()]).length,
+      missing: this.records.filter(r => r.fileExists === false).length
+    };
+  },
+
   async renderList(container) {
     await this.load();
 
@@ -23,14 +130,15 @@ const Records = {
       <div class="flex gap-2 mb-2" style="justify-content:space-between;align-items:center;flex-wrap:wrap">
         <h2 style="margin:0">سوابق آزمایشگاه</h2>
         <div class="flex gap-1">
-          <input type="text" id="records-search" placeholder="جستجو در نام یا مسیر..." style="width:220px">
-          <button class="btn btn-outline btn-sm" id="btn-refresh-records">به‌روزرسانی فهرست</button>
-          <button class="btn btn-primary btn-sm" id="btn-add-record">+ افزودن سابقه</button>
+          <input type="text" id="records-search" placeholder="جستجو در نام یا مسیر..." style="width:200px">
+          <button class="btn btn-outline btn-sm" id="btn-scan-records">اسکن پوشه records</button>
+          <button class="btn btn-primary btn-sm" id="btn-add-record">+ افزودن دستی</button>
         </div>
       </div>
 
       <p class="text-muted mb-2" style="font-size:0.9rem">
-        سوابق از مدارک کنترل‌شده جدا هستند. عملیات به‌روزرسانی فقط فهرست سوابق را تغییر می‌دهد.
+        با دکمه «اسکن پوشه records» تمام فایل‌های داخل پوشه <code>records/</code> (و زیرپوشه‌ها) شناسایی می‌شوند.
+        سوابق از مدارک کنترل‌شده کاملاً جدا هستند.
       </p>
 
       <div class="table-container">
@@ -58,9 +166,23 @@ const Records = {
       this.filterAndRender(e.target.value);
     });
 
-    document.getElementById('btn-refresh-records')?.addEventListener('click', () => {
-      Utils.showToast('فهرست سوابق از حافظه بارگذاری شد. برای اسکن واقعی پوشه، قابلیت در نسخه‌های بعدی تکمیل می‌شود.', 'info');
-      this.renderList(container);
+    document.getElementById('btn-scan-records')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-scan-records');
+      btn.disabled = true;
+      btn.textContent = 'در حال اسکن...';
+
+      try {
+        const result = await this.scanRecordsFolder();
+        Utils.showToast(
+          `اسکن انجام شد: ${result.total} فایل یافت شد، ${result.newCount} مورد جدید، ${result.missing} مفقود`,
+          'success'
+        );
+        this.renderList(container);
+      } catch (err) {
+        Utils.showToast(err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'اسکن پوشه records';
+      }
     });
 
     document.getElementById('btn-add-record')?.addEventListener('click', () => this.openAddForm());
@@ -75,7 +197,7 @@ const Records = {
 
   renderRows(list) {
     if (!list.length) {
-      return `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted)">سابقه‌ای ثبت نشده است</td></tr>`;
+      return `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted)">سابقه‌ای ثبت نشده است. پوشه records را اسکن کنید یا دستی اضافه کنید.</td></tr>`;
     }
 
     return list.map(r => `
@@ -117,7 +239,7 @@ const Records = {
     const modalTitle = document.getElementById('modal-title');
     const modalFooter = document.getElementById('modal-footer');
 
-    modalTitle.textContent = 'افزودن سابقه جدید';
+    modalTitle.textContent = 'افزودن سابقه جدید (دستی)';
     modalBody.innerHTML = `
       <div class="form-group">
         <label>عنوان / نام فایل *</label>
@@ -174,7 +296,8 @@ const Records = {
         notes: document.getElementById('rec-notes').value.trim(),
         fileExists: true,
         createdAt: Utils.nowISO(),
-        createdBy: Auth.currentUser?.displayName
+        createdBy: Auth.currentUser?.displayName,
+        source: 'manual'
       };
 
       this.records.unshift(record);
