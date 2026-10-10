@@ -145,6 +145,7 @@ const App = {
     if (role === 'system_admin') {
       items.push(
         { id: 'users', label: 'مدیریت کاربران', icon: '👥' },
+        { id: 'import', label: 'ورود Excel', icon: '📥' },
         { id: 'settings', label: 'تنظیمات', icon: '⚙️' },
         { id: 'backup', label: 'پشتیبان‌گیری', icon: '💾' }
       );
@@ -169,8 +170,6 @@ const App = {
     });
 
     sidebar.querySelector('a[data-page="dashboard"]')?.classList.add('active');
-
-    // به‌روزرسانی نشان‌ها
     this.updateBadges();
   },
 
@@ -203,6 +202,12 @@ const App = {
       case 'change-requests':
         Workflow.renderList(content);
         break;
+      case 'users':
+        Users.renderList(content);
+        break;
+      case 'import':
+        ExcelImport.openImportUI(content);
+        break;
       case 'records':
         content.innerHTML = `<h2>سوابق آزمایشگاه</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
         break;
@@ -211,9 +216,6 @@ const App = {
         break;
       case 'reports':
         content.innerHTML = `<h2>گزارش‌ها</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
-        break;
-      case 'users':
-        content.innerHTML = `<h2>مدیریت کاربران</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
         break;
       case 'settings':
         content.innerHTML = `<h2>تنظیمات</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
@@ -272,8 +274,7 @@ const App = {
       </div>
       <div class="table-container mt-2">
         <p style="padding:1.5rem;text-align:center;color:var(--text-muted)">
-          هسته مدیریت مدارک و گردش کار درخواست تغییر آماده است.<br>
-          می‌توانید از منوی کناری بخش‌ها را بررسی کنید.
+          سیستم آماده استفاده است. از منوی کناری بخش‌های مختلف را مدیریت کنید.
         </p>
       </div>
     `;
