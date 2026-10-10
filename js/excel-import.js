@@ -1,7 +1,6 @@
 /**
  * Laboratory System - Excel / CSV Import with Column Mapping
- * پشتیبانی از فایل‌های CSV و Excel ساده (TSV/CSV)
- * برای فایل‌های xlsx واقعی بعداً می‌توان کتابخانه محلی اضافه کرد.
+ * پشتیبانی از CSV (همیشه) و .xlsx در صورت وجود کتابخانه SheetJS
  */
 
 const ExcelImport = {
@@ -10,7 +9,6 @@ const ExcelImport = {
   mapping: {},
   previewRows: [],
 
-  // فیلدهای استاندارد برنامه
   standardFields: [
     { key: 'title', label: 'عنوان مدرک', required: true },
     { key: 'code', label: 'کد / شماره مدرک', required: true },
@@ -31,25 +29,29 @@ const ExcelImport = {
     { key: 'description', label: 'توضیحات', required: false }
   ],
 
-  /**
-   * باز کردن رابط ورود Excel/CSV
-   */
+  isXlsxSupported() {
+    return typeof XLSX !== 'undefined';
+  },
+
   openImportUI(container) {
+    const xlsxOk = this.isXlsxSupported();
+
     container.innerHTML = `
       <div class="flex gap-2 mb-2" style="align-items:center">
         <button class="btn btn-outline btn-sm" id="btn-back-from-import">← بازگشت</button>
-        <h2 style="margin:0">ورود اطلاعات مدارک از Excel / CSV</h2>
+        <h2 style="margin:0">ورود اطلاعات مدارک از Excel</h2>
       </div>
 
       <div class="table-container" style="padding:1.5rem">
         <p class="text-muted mb-2">
-          فایل Excel را به صورت CSV ذخیره کنید (Save As → CSV UTF-8) و سپس انتخاب کنید.<br>
-          ستون‌ها را با فیلدهای استاندارد برنامه تطبیق دهید.
+          ${xlsxOk 
+            ? '✅ پشتیبانی از فایل‌های <strong>.xlsx</strong> و <strong>.csv</strong> فعال است.' 
+            : 'در حال حاضر پشتیبانی از <strong>CSV</strong> فعال است. برای پشتیبانی مستقیم از .xlsx، فایل <code>xlsx.full.min.js</code> را در پوشه <code>lib/</code> قرار دهید.'}
         </p>
 
         <div class="form-group">
-          <label>انتخاب فایل CSV</label>
-          <input type="file" id="import-file" accept=".csv,.txt,.tsv" style="padding:0.5rem">
+          <label>انتخاب فایل ${xlsxOk ? 'Excel یا CSV' : 'CSV'}</label>
+          <input type="file" id="import-file" accept="${xlsxOk ? '.xlsx,.xls,.csv,.txt,.tsv' : '.csv,.txt,.tsv'}" style="padding:0.5rem">
         </div>
 
         <div id="mapping-section" class="hidden mt-2">
@@ -76,14 +78,28 @@ const ExcelImport = {
 
     document.getElementById('import-file').addEventListener('change', (e) => {
       const file = e.target.files[0];
-      if (file) this.parseFile(file);
+      if (file) this.handleFile(file);
     });
 
     document.getElementById('btn-preview-import')?.addEventListener('click', () => this.showPreview());
     document.getElementById('btn-do-import')?.addEventListener('click', () => this.executeImport());
   },
 
-  parseFile(file) {
+  async handleFile(file) {
+    const name = file.name.toLowerCase();
+
+    if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+      if (!this.isXlsxSupported()) {
+        Utils.showToast('کتابخانه خواندن Excel موجود نیست. لطفاً فایل را به CSV تبدیل کنید یا xlsx.full.min.js را اضافه کنید.', 'error');
+        return;
+      }
+      await this.parseXlsx(file);
+    } else {
+      this.parseCSV(file);
+    }
+  },
+
+  parseCSV(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -94,7 +110,6 @@ const ExcelImport = {
           return;
         }
 
-        // تشخیص جداکننده
         const firstLine = lines[0];
         let separator = ',';
         if (firstLine.includes('\t')) separator = '\t';
@@ -111,12 +126,41 @@ const ExcelImport = {
         }).filter(r => Object.values(r).some(v => v));
 
         this.showMappingUI();
-        Utils.showToast(`${this.rawData.length} ردیف خوانده شد`, 'success');
+        Utils.showToast(`${this.rawData.length} ردیف از CSV خوانده شد`, 'success');
       } catch (err) {
-        Utils.showToast('خطا در خواندن فایل: ' + err.message, 'error');
+        Utils.showToast('خطا در خواندن CSV: ' + err.message, 'error');
       }
     };
     reader.readAsText(file, 'UTF-8');
+  },
+
+  async parseXlsx(file) {
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheet = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[firstSheet];
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+      if (!json.length) {
+        Utils.showToast('فایل Excel خالی است', 'error');
+        return;
+      }
+
+      this.headers = Object.keys(json[0]);
+      this.rawData = json.map(row => {
+        const cleaned = {};
+        this.headers.forEach(h => {
+          cleaned[h] = row[h] !== undefined && row[h] !== null ? String(row[h]).trim() : '';
+        });
+        return cleaned;
+      });
+
+      this.showMappingUI();
+      Utils.showToast(`${this.rawData.length} ردیف از Excel خوانده شد`, 'success');
+    } catch (err) {
+      Utils.showToast('خطا در خواندن فایل Excel: ' + err.message, 'error');
+    }
   },
 
   parseCSVLine(line, separator) {
@@ -144,18 +188,19 @@ const ExcelImport = {
     const fieldsDiv = document.getElementById('mapping-fields');
     Utils.show(section);
 
-    // پیشنهاد خودکار نگاشت بر اساس شباهت نام ستون
     const autoMap = {};
     this.standardFields.forEach(f => {
       const found = this.headers.find(h => {
         const hl = h.toLowerCase();
         const fl = f.label.toLowerCase();
         const fk = f.key.toLowerCase();
-        return hl.includes(fk) || hl.includes(fl) || 
-               fl.includes(hl) || hl.includes('عنوان') && f.key === 'title' ||
-               hl.includes('کد') && f.key === 'code' ||
-               hl.includes('ویرایش') && f.key === 'revision' ||
-               hl.includes('وضعیت') && f.key === 'status';
+        return hl.includes(fk) || hl.includes(fl) || fl.includes(hl) ||
+               (hl.includes('عنوان') && f.key === 'title') ||
+               (hl.includes('کد') && f.key === 'code') ||
+               (hl.includes('ویرایش') && f.key === 'revision') ||
+               (hl.includes('وضعیت') && f.key === 'status') ||
+               (hl.includes('title') && f.key === 'title') ||
+               (hl.includes('document') && f.key === 'title');
       });
       if (found) autoMap[f.key] = found;
     });
@@ -182,7 +227,6 @@ const ExcelImport = {
   },
 
   showPreview() {
-    // جمع‌آوری نگاشت فعلی
     document.querySelectorAll('.mapping-select').forEach(sel => {
       this.mapping[sel.dataset.field] = sel.value;
     });
@@ -203,14 +247,13 @@ const ExcelImport = {
 
     const head = document.getElementById('preview-head');
     const body = document.getElementById('preview-body');
-
     const cols = this.standardFields.filter(f => this.mapping[f.key]);
+
     head.innerHTML = `<tr>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr>`;
     body.innerHTML = this.previewRows.map(r => `
       <tr>${cols.map(c => `<td>${r[c.key] || '—'}</td>`).join('')}</tr>
     `).join('');
 
-    // بررسی خطاها
     const warnings = [];
     const codes = this.rawData.map(r => r[this.mapping.code]).filter(Boolean);
     const duplicates = codes.filter((c, i) => codes.indexOf(c) !== i);
@@ -222,8 +265,8 @@ const ExcelImport = {
     if (emptyTitles) warnings.push(`⚠ ${emptyTitles} ردیف بدون عنوان`);
 
     const warnDiv = document.getElementById('import-warnings');
-    warnDiv.innerHTML = warnings.length ? 
-      warnings.map(w => `<p style="color:var(--warning)">${w}</p>`).join('') : 
+    warnDiv.innerHTML = warnings.length ?
+      warnings.map(w => `<p style="color:var(--warning)">${w}</p>`).join('') :
       '<p style="color:var(--success)">✓ داده‌ها از نظر اولیه معتبر به نظر می‌رسند</p>';
 
     Utils.show('preview-section');
@@ -245,15 +288,8 @@ const ExcelImport = {
         const code = (row[this.mapping.code] || '').trim();
         const title = (row[this.mapping.title] || '').trim();
 
-        if (!code || !title) {
-          skipped++;
-          continue;
-        }
-
-        if (existingCodes.has(code.toLowerCase())) {
-          skipped++;
-          continue;
-        }
+        if (!code || !title) { skipped++; continue; }
+        if (existingCodes.has(code.toLowerCase())) { skipped++; continue; }
 
         const doc = {
           id: Utils.generateId('doc'),
@@ -285,7 +321,6 @@ const ExcelImport = {
       }
 
       await Documents.saveDocuments();
-
       Utils.showToast(`${imported} مدرک وارد شد. ${skipped} ردیف نادیده گرفته شد.`, 'success');
       App.navigate('documents');
     } catch (err) {
