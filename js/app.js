@@ -6,27 +6,15 @@ const App = {
   async init() {
     console.log('Laboratory System starting...');
 
-    // بررسی پشتیبانی اولیه
     if (!window.crypto || !window.crypto.subtle) {
       console.warn('Web Crypto API در دسترس نیست. هش رمز عبور از روش ساده‌تر استفاده می‌کند.');
     }
 
     try {
-      // تلاش برای تشخیص وضعیت راه‌اندازی
-      // چون هنوز پوشه انتخاب نشده، ابتدا صفحه بارگذاری را نشان می‌دهیم
-      // و سپس تصمیم می‌گیریم
-
-      // برای سادگی نسخه اول: همیشه اول پوشه را چک می‌کنیم
-      // اگر File System Access پشتیبانی نشود، پیام مناسب نشان می‌دهیم
-
       if (!Storage.isFSAccessSupported()) {
         this.showUnsupportedBrowser();
         return;
       }
-
-      // در نسخه فعلی، کاربر باید هر بار پوشه را انتخاب کند
-      // (چون DirectoryHandle را نمی‌توان به راحتی persist کرد بدون permission دائمی)
-      // بعداً می‌توان با IndexedDB بهبود داد
 
       Utils.hide('loading-screen');
       this.showFolderSelectionPrompt();
@@ -82,15 +70,12 @@ const App = {
       const config = await Storage.getSystemConfig();
 
       if (!config || config.setupStatus !== 'completed') {
-        // راه‌اندازی لازم است
         Setup.start();
       } else {
-        // سیستم راه‌اندازی شده → صفحه ورود
         this.showLogin();
       }
     } catch (err) {
       console.error(err);
-      // اگر فایل config خراب باشد یا خوانده نشود، راه‌اندازی را شروع کن
       Setup.start();
     }
   },
@@ -126,24 +111,18 @@ const App = {
     Utils.hide('loading-screen');
     Utils.show('main-screen');
 
-    // نمایش اطلاعات کاربر
     document.getElementById('current-user').textContent = 
       `${Auth.currentUser.displayName} (${Auth.currentUser.roleName})`;
 
-    // بارگذاری نام سازمان
     Storage.readJSON('organization.json').then(org => {
       if (org) {
         document.getElementById('org-name').textContent = org.name || '';
       }
     });
 
-    // ساخت منو بر اساس نقش
     this.buildSidebar();
-
-    // نمایش داشبورد پیش‌فرض
     this.navigate('dashboard');
 
-    // دکمه خروج
     document.getElementById('btn-logout').onclick = () => {
       Auth.logout();
       this.showLogin();
@@ -171,10 +150,6 @@ const App = {
       );
     }
 
-    if (role === 'quality_manager' || role === 'system_admin') {
-      // نشان تعداد درخواست‌های در انتظار بعداً اضافه می‌شود
-    }
-
     sidebar.innerHTML = items.map(item => `
       <a href="#" data-page="${item.id}" class="nav-item">
         <span>${item.icon}</span>
@@ -183,21 +158,36 @@ const App = {
       </a>
     `).join('');
 
-    // رویداد کلیک منو
     sidebar.querySelectorAll('a').forEach(a => {
       a.addEventListener('click', (e) => {
         e.preventDefault();
         const page = a.dataset.page;
         this.navigate(page);
-
-        // فعال کردن آیتم
         sidebar.querySelectorAll('a').forEach(x => x.classList.remove('active'));
         a.classList.add('active');
       });
     });
 
-    // فعال کردن داشبورد به صورت پیش‌فرض
     sidebar.querySelector('a[data-page="dashboard"]')?.classList.add('active');
+
+    // به‌روزرسانی نشان‌ها
+    this.updateBadges();
+  },
+
+  async updateBadges() {
+    try {
+      await Workflow.load();
+      const pending = Workflow.getPendingReview().length;
+      const badge = document.getElementById('badge-change-requests');
+      if (badge) {
+        if (pending > 0 && (Auth.isQualityManager() || Auth.isSystemAdmin())) {
+          badge.textContent = pending;
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
+      }
+    } catch (e) {}
   },
 
   navigate(page) {
@@ -208,28 +198,28 @@ const App = {
         this.renderDashboard(content);
         break;
       case 'documents':
-        content.innerHTML = `<h2>مدارک</h2><p class="text-muted">این بخش در حال پیاده‌سازی است...</p>`;
+        Documents.renderList(content);
         break;
       case 'change-requests':
-        content.innerHTML = `<h2>درخواست‌های تغییر</h2><p class="text-muted">این بخش در حال پیاده‌سازی است...</p>`;
+        Workflow.renderList(content);
         break;
       case 'records':
-        content.innerHTML = `<h2>سوابق آزمایشگاه</h2><p class="text-muted">این بخش در حال پیاده‌سازی است...</p>`;
+        content.innerHTML = `<h2>سوابق آزمایشگاه</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
         break;
       case 'standards':
-        content.innerHTML = `<h2>استانداردها و بندها</h2><p class="text-muted">این بخش در حال پیاده‌سازی است...</p>`;
+        content.innerHTML = `<h2>استانداردها و بندها</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
         break;
       case 'reports':
-        content.innerHTML = `<h2>گزارش‌ها</h2><p class="text-muted">این بخش در حال پیاده‌سازی است...</p>`;
+        content.innerHTML = `<h2>گزارش‌ها</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
         break;
       case 'users':
-        content.innerHTML = `<h2>مدیریت کاربران</h2><p class="text-muted">این بخش در حال پیاده‌سازی است...</p>`;
+        content.innerHTML = `<h2>مدیریت کاربران</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
         break;
       case 'settings':
-        content.innerHTML = `<h2>تنظیمات</h2><p class="text-muted">این بخش در حال پیاده‌سازی است...</p>`;
+        content.innerHTML = `<h2>تنظیمات</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
         break;
       case 'backup':
-        content.innerHTML = `<h2>پشتیبان‌گیری و بازیابی</h2><p class="text-muted">این بخش در حال پیاده‌سازی است...</p>`;
+        content.innerHTML = `<h2>پشتیبان‌گیری و بازیابی</h2><p class="text-muted">این بخش در مرحله بعدی پیاده‌سازی می‌شود.</p>`;
         break;
       default:
         content.innerHTML = `<p>صفحه یافت نشد.</p>`;
@@ -240,9 +230,8 @@ const App = {
     const role = Auth.currentUser.role;
     let cardsHtml = '';
 
-    // کارت‌های مشترک
     cardsHtml += `
-      <div class="card" data-page="documents">
+      <div class="card" onclick="App.navigate('documents')">
         <div class="card-title">مدارک جاری</div>
         <div class="card-value" id="stat-current-docs">—</div>
       </div>
@@ -250,7 +239,7 @@ const App = {
 
     if (role === 'quality_manager' || role === 'system_admin') {
       cardsHtml += `
-        <div class="card warning" data-page="change-requests">
+        <div class="card warning" onclick="App.navigate('change-requests')">
           <div class="card-title">درخواست‌های در انتظار بررسی</div>
           <div class="card-value" id="stat-pending-review">—</div>
         </div>
@@ -259,7 +248,7 @@ const App = {
 
     if (role === 'system_admin') {
       cardsHtml += `
-        <div class="card success" data-page="change-requests">
+        <div class="card success" onclick="App.navigate('change-requests')">
           <div class="card-title">آماده اقدام مدیر سیستم</div>
           <div class="card-value" id="stat-ready-action">—</div>
         </div>
@@ -268,7 +257,7 @@ const App = {
 
     if (role === 'technical_manager') {
       cardsHtml += `
-        <div class="card" data-page="change-requests">
+        <div class="card" onclick="App.navigate('change-requests')">
           <div class="card-title">درخواست‌های من</div>
           <div class="card-value" id="stat-my-requests">—</div>
         </div>
@@ -283,34 +272,36 @@ const App = {
       </div>
       <div class="table-container mt-2">
         <p style="padding:1.5rem;text-align:center;color:var(--text-muted)">
-          بخش‌های اصلی سیستم به تدریج پیاده‌سازی می‌شوند.<br>
-          راه‌اندازی اولیه، ورود و ساختار اصلی آماده است.
+          هسته مدیریت مدارک و گردش کار درخواست تغییر آماده است.<br>
+          می‌توانید از منوی کناری بخش‌ها را بررسی کنید.
         </p>
       </div>
     `;
 
-    // بارگذاری آمار واقعی (در نسخه‌های بعدی کامل‌تر می‌شود)
     try {
-      const docs = await Storage.readJSON('documents.json');
-      const currentCount = (docs?.documents || []).filter(d => d.status === 'current').length;
+      await Documents.load();
+      const currentCount = Documents.getCurrentDocuments().length;
       const el = document.getElementById('stat-current-docs');
       if (el) el.textContent = currentCount;
 
-      const requests = await Storage.readJSON('change-requests.json');
-      const pending = (requests?.requests || []).filter(r => r.status === 'pending_review').length;
+      await Workflow.load();
+      const pending = Workflow.getPendingReview().length;
       const pendingEl = document.getElementById('stat-pending-review');
       if (pendingEl) pendingEl.textContent = pending;
 
-      const ready = (requests?.requests || []).filter(r => r.status === 'ready_to_publish' || r.status === 'approved').length;
+      const ready = Workflow.getReadyForAction().length;
       const readyEl = document.getElementById('stat-ready-action');
       if (readyEl) readyEl.textContent = ready;
+
+      const myReqs = Workflow.getMyRequests().length;
+      const myEl = document.getElementById('stat-my-requests');
+      if (myEl) myEl.textContent = myReqs;
     } catch (e) {
       console.warn('خطا در بارگذاری آمار:', e);
     }
   }
 };
 
-// شروع برنامه پس از لود شدن صفحه
 document.addEventListener('DOMContentLoaded', () => {
   App.init();
 });
