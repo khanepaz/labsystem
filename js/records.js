@@ -1,6 +1,6 @@
 /**
  * Laboratory System - Records Management
- * درخت پوشه‌ها + باز کردن PDF در مرورگر + پیش‌نمایش Excel داخل برنامه
+ * درخت + پیش‌نمایش Excel + باز کردن پوشه
  */
 
 const Records = {
@@ -75,6 +75,7 @@ const Records = {
           else if (['xls', 'xlsx', 'csv'].includes(ext)) type = 'excel';
           else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) type = 'image';
           else if (['doc', 'docx', 'txt'].includes(ext)) type = 'report';
+          else if (['rar', 'zip', '7z'].includes(ext)) type = 'archive';
           foundFiles.push({ fileName: entry.name, path: entryPath, type });
         } else if (entry.kind === 'directory') {
           try {
@@ -151,12 +152,55 @@ const Records = {
     return await fileHandle.getFile();
   },
 
+  /** مسیر پوشه والد از مسیر فایل */
+  parentFolderPath(filePath) {
+    if (!filePath) return 'records';
+    const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean);
+    if (parts.length <= 1) return 'records';
+    parts.pop();
+    return parts.join('/');
+  },
+
   /**
-   * باز کردن فایل:
-   * - PDF و تصویر → تب جدید مرورگر
-   * - Excel/CSV → پیش‌نمایش جدولی داخل برنامه (اگر کتابخانه xlsx باشد)
-   * - بقیه → دانلود / باز کردن
+   * باز کردن پوشه در درخت + کپی مسیر
+   * (مرورگر اجازه باز کردن Explorer ویندوز را نمی‌دهد)
    */
+  async openFolder(folderPath) {
+    if (!folderPath) folderPath = 'records';
+
+    // باز کردن تمام پوشه‌های والد در درخت
+    const parts = folderPath.replace(/\\/g, '/').split('/').filter(Boolean);
+    let acc = '';
+    for (const p of parts) {
+      acc = acc ? acc + '/' + p : p;
+      this.expanded.add(acc);
+    }
+    this.expanded.add(folderPath);
+
+    // کپی مسیر نسبی
+    try {
+      await navigator.clipboard.writeText(folderPath);
+    } catch (e) {
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = folderPath;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+
+    // رفرش درخت
+    const treeEl = document.getElementById('records-tree');
+    if (treeEl) treeEl.innerHTML = this.renderTree(this.tree, 0);
+
+    Utils.showToast(
+      'پوشه در درخت باز شد. مسیر کپی شد: ' + folderPath +
+      ' — در Explorer بروید به پوشه داده‌ها و این مسیر را باز کنید.',
+      'success'
+    );
+  },
+
   async openRecordFile(record) {
     if (!record.path) {
       Utils.showToast('مسیر فایل ثبت نشده', 'warning');
@@ -172,7 +216,6 @@ const Records = {
       const name = (record.fileName || record.title || file.name || '').toLowerCase();
       const ext = name.split('.').pop();
 
-      // PDF و تصاویر → مستقیم در مرورگر
       if (['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext)) {
         const url = URL.createObjectURL(file);
         window.open(url, '_blank');
@@ -181,26 +224,25 @@ const Records = {
         return;
       }
 
-      // Excel / CSV → پیش‌نمایش داخل برنامه
       if (['xlsx', 'xls', 'csv'].includes(ext)) {
         await this.previewSpreadsheet(file, record.fileName || record.title || file.name);
         return;
       }
 
-      // سایر فایل‌ها → باز کردن / دانلود
+      // rar, zip, doc و ... → دانلود
       const url = URL.createObjectURL(file);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      Utils.showToast('فایل باز شد (در صورت عدم پشتیبانی مرورگر، دانلود می‌شود)', 'success');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.fileName || record.title || file.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      Utils.showToast('دانلود آغاز شد. برای rar/zip از «باز کردن پوشه» استفاده کنید.', 'success');
     } catch (err) {
       console.error(err);
       Utils.showToast('فایل یافت نشد: ' + record.path, 'error');
     }
   },
 
-  /**
-   * پیش‌نمایش Excel/CSV داخل مودال
-   */
   async previewSpreadsheet(file, title) {
     const modalTitle = document.getElementById('modal-title');
     const modalBody = document.getElementById('modal-body');
@@ -208,25 +250,17 @@ const Records = {
     const modal = document.getElementById('modal');
 
     modalTitle.textContent = 'پیش‌نمایش: ' + title;
-    modalBody.innerHTML = '<p class="text-muted">در حال خواندن فایل...</p>';
+    modalBody.innerHTML = '<p class="text-muted">در حال خواندن...</p>';
     modalFooter.innerHTML = `
       <button class="btn btn-outline" id="btn-close-preview">بستن</button>
-      <button class="btn btn-primary" id="btn-download-file">دانلود فایل اصلی</button>
+      <button class="btn btn-primary" id="btn-download-file">دانلود فایل</button>
     `;
-
-    // مودال عریض‌تر برای جدول
     modal.style.maxWidth = '920px';
     Utils.show('modal-overlay');
 
-    document.getElementById('btn-close-preview').onclick = () => {
-      Utils.hide('modal-overlay');
-      modal.style.maxWidth = '';
-    };
-    document.getElementById('modal-close').onclick = () => {
-      Utils.hide('modal-overlay');
-      modal.style.maxWidth = '';
-    };
-
+    const close = () => { Utils.hide('modal-overlay'); modal.style.maxWidth = ''; };
+    document.getElementById('btn-close-preview').onclick = close;
+    document.getElementById('modal-close').onclick = close;
     document.getElementById('btn-download-file').onclick = () => {
       const url = URL.createObjectURL(file);
       const a = document.createElement('a');
@@ -245,7 +279,6 @@ const Records = {
         const lines = text.split(/\r?\n/).filter(l => l.trim());
         const sep = lines[0].includes('\t') ? '\t' : (lines[0].includes(';') ? ';' : ',');
         rows = lines.slice(0, 100).map(line => {
-          // ساده
           const result = [];
           let cur = '', q = false;
           for (let i = 0; i < line.length; i++) {
@@ -263,11 +296,7 @@ const Records = {
         const sheet = wb.Sheets[wb.SheetNames[0]];
         rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }).slice(0, 100);
       } else {
-        modalBody.innerHTML = `
-          <p class="text-muted">کتابخانه خواندن Excel موجود نیست.</p>
-          <p>می‌توانید فایل را دانلود کنید و با Excel باز کنید.</p>
-          <p class="text-muted" style="font-size:0.85rem">برای پیش‌نمایش داخل برنامه، فایل xlsx.full.min.js باید در پوشه lib باشد.</p>
-        `;
+        modalBody.innerHTML = '<p class="text-muted">کتابخانه Excel موجود نیست. فایل را دانلود کنید.</p>';
         return;
       }
 
@@ -278,31 +307,21 @@ const Records = {
 
       const maxCols = Math.max(...rows.map(r => r.length));
       let tableHtml = '<div style="overflow:auto;max-height:60vh"><table><thead><tr>';
-      // ردیف اول به عنوان هدر
       const header = rows[0];
       for (let c = 0; c < maxCols; c++) {
         tableHtml += `<th>${header[c] !== undefined && header[c] !== '' ? header[c] : 'ستون ' + (c + 1)}</th>`;
       }
       tableHtml += '</tr></thead><tbody>';
-
       for (let i = 1; i < rows.length; i++) {
         tableHtml += '<tr>';
-        for (let c = 0; c < maxCols; c++) {
-          tableHtml += `<td>${rows[i][c] !== undefined ? rows[i][c] : ''}</td>`;
-        }
+        for (let c = 0; c < maxCols; c++) tableHtml += `<td>${rows[i][c] !== undefined ? rows[i][c] : ''}</td>`;
         tableHtml += '</tr>';
       }
       tableHtml += '</tbody></table></div>';
-
-      if (rows.length >= 100) {
-        tableHtml += '<p class="text-muted mt-1" style="font-size:0.85rem">فقط ۱۰۰ ردیف اول نمایش داده شده است.</p>';
-      }
-
+      if (rows.length >= 100) tableHtml += '<p class="text-muted mt-1" style="font-size:0.85rem">فقط ۱۰۰ ردیف اول</p>';
       modalBody.innerHTML = tableHtml;
     } catch (err) {
-      console.error(err);
-      modalBody.innerHTML = `<p style="color:var(--danger)">خطا در خواندن فایل: ${err.message}</p>
-        <p class="text-muted">می‌توانید فایل را دانلود کنید.</p>`;
+      modalBody.innerHTML = `<p style="color:var(--danger)">خطا: ${err.message}</p>`;
     }
   },
 
@@ -319,7 +338,8 @@ const Records = {
       </div>
 
       <p class="text-muted mb-2" style="font-size:0.88rem">
-        PDF و تصویر در تب جدید باز می‌شوند. فایل‌های Excel به‌صورت جدول داخل برنامه نمایش داده می‌شوند.
+        PDF/تصویر در مرورگر باز می‌شود. Excel پیش‌نمایش جدولی دارد.
+        برای rar و سایر فایل‌ها از <strong>باز کردن پوشه</strong> استفاده کنید.
       </p>
 
       <div class="table-container" style="padding:1rem" id="records-tree">
@@ -347,21 +367,29 @@ const Records = {
     document.getElementById('btn-add-record')?.addEventListener('click', () => this.openAddForm());
 
     document.getElementById('records-tree')?.addEventListener('click', (e) => {
+      // جلوگیری از تداخل کلیک دکمه با پوشه
+      const actionBtn = e.target.closest('[data-action]');
+      if (actionBtn) {
+        e.stopPropagation();
+        const action = actionBtn.dataset.action;
+        if (action === 'open-file') {
+          const rec = this.records.find(r => r.id === actionBtn.dataset.id);
+          if (rec) this.openRecordFile(rec);
+        } else if (action === 'open-folder') {
+          this.openFolder(actionBtn.dataset.path);
+        } else if (action === 'delete') {
+          this.deleteRecord(actionBtn.dataset.id);
+        }
+        return;
+      }
+
       const folderBtn = e.target.closest('[data-folder]');
       if (folderBtn) {
         const path = folderBtn.dataset.folder;
         if (this.expanded.has(path)) this.expanded.delete(path);
         else this.expanded.add(path);
         document.getElementById('records-tree').innerHTML = this.renderTree(this.tree, 0);
-        return;
       }
-      const openBtn = e.target.closest('[data-open-file]');
-      if (openBtn) {
-        const rec = this.records.find(r => r.id === openBtn.dataset.openFile);
-        if (rec) this.openRecordFile(rec);
-      }
-      const delBtn = e.target.closest('[data-delete]');
-      if (delBtn) this.deleteRecord(delBtn.dataset.delete);
     });
   },
 
@@ -373,12 +401,15 @@ const Records = {
 
     if (level === 0 || node.name) {
       html += `
-        <div style="padding:0.35rem 0;padding-right:${indent}px;cursor:pointer;user-select:none" data-folder="${node.path}">
-          <span style="margin-left:0.4rem">${isExpanded ? '📂' : '📁'}</span>
-          <strong>${node.name || 'records'}</strong>
-          <span class="text-muted" style="font-size:0.8rem;margin-right:0.5rem">
-            (${Object.keys(node.children || {}).length} پوشه، ${(node.files || []).length} فایل)
+        <div style="padding:0.4rem 0;padding-right:${indent}px;display:flex;align-items:center;gap:0.4rem;border-bottom:1px solid #f1f5f9">
+          <span style="cursor:pointer;user-select:none;flex:1" data-folder="${node.path}">
+            ${isExpanded ? '📂' : '📁'}
+            <strong style="margin-right:0.3rem">${node.name || 'records'}</strong>
+            <span class="text-muted" style="font-size:0.8rem">
+              (${Object.keys(node.children || {}).length} پوشه، ${(node.files || []).length} فایل)
+            </span>
           </span>
+          <button class="btn btn-sm btn-outline" data-action="open-folder" data-path="${node.path}" title="باز کردن پوشه">باز کردن پوشه</button>
         </div>`;
     }
 
@@ -392,15 +423,17 @@ const Records = {
         (a.fileName || a.title || '').localeCompare(b.fileName || b.title || '', 'fa'));
       for (const f of files) {
         const fileIndent = (level + 1) * 18;
+        const parentPath = this.parentFolderPath(f.path);
         html += `
-          <div style="padding:0.3rem 0;padding-right:${fileIndent}px;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid #f1f5f9">
+          <div style="padding:0.3rem 0;padding-right:${fileIndent}px;display:flex;align-items:center;gap:0.4rem;border-bottom:1px solid #f1f5f9">
             <span>${this.fileIcon(f.type)}</span>
             <span style="flex:1">${f.fileName || f.title}</span>
             <span class="status ${f.fileExists === false ? 'status-obsolete' : 'status-current'}" style="font-size:0.75rem">
               ${f.fileExists === false ? 'مفقود' : 'موجود'}
             </span>
-            <button class="btn btn-sm btn-primary" data-open-file="${f.id}">باز کردن</button>
-            <button class="btn btn-sm btn-outline" data-delete="${f.id}">حذف</button>
+            <button class="btn btn-sm btn-primary" data-action="open-file" data-id="${f.id}">باز کردن</button>
+            <button class="btn btn-sm btn-outline" data-action="open-folder" data-path="${parentPath}">باز کردن پوشه</button>
+            <button class="btn btn-sm btn-outline" data-action="delete" data-id="${f.id}">حذف</button>
           </div>`;
       }
     }
@@ -408,7 +441,7 @@ const Records = {
   },
 
   fileIcon(type) {
-    return ({ pdf: '📄', excel: '📊', image: '🖼️', report: '📝', other: '📎' })[type] || '📎';
+    return ({ pdf: '📄', excel: '📊', image: '🖼️', report: '📝', archive: '📦', other: '📎' })[type] || '📎';
   },
 
   openAddForm() {
@@ -418,19 +451,14 @@ const Records = {
 
     modalTitle.textContent = 'افزودن سابقه جدید';
     modalBody.innerHTML = `
-      <div class="form-group">
-        <label>عنوان *</label>
-        <input type="text" id="rec-title" required>
-      </div>
-      <div class="form-group">
-        <label>مسیر فایل</label>
-        <input type="text" id="rec-path" placeholder="records/1403/گزارش.pdf">
-      </div>
+      <div class="form-group"><label>عنوان *</label><input type="text" id="rec-title" required></div>
+      <div class="form-group"><label>مسیر فایل</label><input type="text" id="rec-path" placeholder="records/1403/file.rar"></div>
       <div class="form-group">
         <label>نوع</label>
         <select id="rec-type">
           <option value="pdf">PDF</option>
           <option value="excel">Excel</option>
+          <option value="archive">آرشیو (rar/zip)</option>
           <option value="image">تصویر</option>
           <option value="report">گزارش</option>
           <option value="other">سایر</option>
