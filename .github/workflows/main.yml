@@ -1,0 +1,56 @@
+
+name: Test Clean APIs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test API connection
+        env:
+          CLEAN_API_KEY: ${{ secrets.CLEAN_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import urllib.request
+          import urllib.error
+          import json
+
+          key = os.environ.get("CLEAN_API_KEY")
+
+          if not key:
+              print("ERROR: CLEAN_API_KEY secret is missing")
+              raise SystemExit(1)
+
+          req = urllib.request.Request(
+              "https://cleanapis.com/v1/chat/completions",
+              data=json.dumps({
+                  "model": "claude-opus-4.8",
+                  "messages": [
+                      {
+                          "role": "user",
+                          "content": "Reply with exactly: API connection works"
+                      }
+                  ]
+              }).encode("utf-8"),
+              headers={
+                  "Authorization": "Bearer " + key,
+                  "Content-Type": "application/json"
+              },
+              method="POST"
+          )
+
+          try:
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  print("HTTP STATUS:", response.status)
+                  print("API RESPONSE:", response.read().decode("utf-8"))
+          except urllib.error.HTTPError as e:
+              print("HTTP ERROR:", e.code)
+              print(e.read().decode("utf-8", "replace"))
+              raise SystemExit(1)
+          except Exception as e:
+              print("CONNECTION ERROR:", type(e).__name__, str(e))
+              raise SystemExit(1)
+          PY
