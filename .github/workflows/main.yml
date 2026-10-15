@@ -25,7 +25,7 @@ jobs:
               raise SystemExit(1)
 
           req = urllib.request.Request(
-              "https://cleanapis.com/v1/chat/completions",
+              "https://www.cleanapis.com/v1/chat/completions",
               data=json.dumps({
                   "model": "claude-opus-4.8",
                   "messages": [
